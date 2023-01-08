@@ -1,0 +1,325 @@
+---
+title: "World cup analysis"
+author: "Anders Dahl Boch"
+date: "2022-12-09"
+output: html_document
+---
+
+
+#loading packages and setting up knitr
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+#loading Packages
+library(tidyverse)
+library(here)
+library(lubridate)
+```
+
+#read csv
+For my data i am using The Fjelstul World Cup Database which i found at https://github.com/jfjelstul/worldcup i am only going to use the data sets for goals and Team_appearances and have deleted the other datasets to make it more tidy. 
+
+I am first going to start by reading the data set and checking if everything is correct  
+
+
+```{r}
+team_data <- read_csv("data-csv/team_appearances.csv")
+goal_data <- read_csv("data-csv/goals.csv")
+```
+
+#Check data
+
+```{r}
+head(team_data)
+```
+```{r}
+head(goal_data)
+```
+All of the data looks good, and i can now begin to start to work with and visualize the data
+
+#Manipulating Visualisation and analysing
+I will be looking at 4 thing: 
+1.When in a match the most goals are score. 
+2.Which nations play matches with the highest and lowest scoring games. 
+3.The development of goals scored over time. 
+4. the potential in comparing countries
+
+I wil comment on how and why manipulate, visualize and analyze the data as i go trough. The main part of my information/tools came form the below mentioned sites 
+
+#visualising:
+https://datacarpentry.org/R-ecology-lesson/04-visualization-ggplot2.html
+https://r4ds.had.co.nz/data-visualisation.html 
+
+#manipulating:
+https://r4ds.had.co.nz/wrangle-intro.html
+https://datacarpentry.org/R-ecology-lesson/03-dplyr.html 
+
+
+#1.Scoring minutes
+
+```{r}
+most_common_scoring_minutes <- goal_data %>%
+  group_by(minute_regulation) %>%
+  count() %>%
+  arrange(desc(n)) 
+
+most_common_scoring_minutes
+
+```
+The amount of goals in the 90th minute seems unreasonably large. That because all stoppage time goals are counted as goals in the 90th minute. This can partially be fixed by filtering out all goals scored in stoppage time. 
+
+However, the dataset does not seem to account for stoppage time before the 1990 World Cup, and therefore the amount of goals being scored in the 90th minute should still be seen as somewhat inflated. The same problem technically applies for the 45th minute, but there is usually less stoppage time in the first half of a football match, and therefore the number of goals scored in the 45th minute should be more reliable. 
+
+it is of course a shame to discount stoppage time goals but i havent been able to include 
+
+#Finding non stoppage time goals 
+I am now going to filter out the stoppage time goals 
+```{r}
+#I want to find the total amount of goals without stoppage time goals 
+total_goals_without_stoppage <- goal_data %>% 
+  filter(match_period != c("first half, stoppage time", "second half, stoppage time")) %>%
+  summarize(total_goals_without_stoppage = sum(home_team+away_team))
+
+total_goals_without_stoppage
+```
+#goals per 1 min interval
+i want to filter out every stoppage time goal and look at how many percent goals are scored by each minute, i am here going to use the number of non stoppage time goals i found, which i have written in manualy. 
+
+I often like to include a print when i am plotting so i can easily see the specific values.
+```{r}
+#filter data
+most_common_scoring_minutes_filtered <- goal_data %>%
+  filter(match_period != c("first half, stoppage time", "second half, stoppage time")) %>% 
+  group_by(minute_regulation) %>%
+  count() %>%
+  arrange(desc(n)) %>%
+  mutate(percent_goals = (n / 2499) * 100)
+
+#Print
+print(most_common_scoring_minutes_filtered)
+
+# Visualize the results
+ggplot(most_common_scoring_minutes_filtered, aes(x = minute_regulation, y = percent_goals)) +
+  geom_bar(stat = "identity") +
+  ylab("Percent Goals") +
+  xlab("Match minute") +
+  ggtitle("Goals scored at every 1 min interval")
+```
+the plot illustrates the percentage of goals scored at every minute
+
+its a bit hard to read any patterns of intensity of goals scoring from a 1 minute intervals, so i want to look at 10 min intervals instead 
+
+
+#10 min intervals
+i created a new data frame called minute_regulation_interval, which contains the minute_regulation values grouped into intervals of 10 minutes each. And used The cut() function to create the intervals
+```{r}
+# Group minute_regulation into 10 minute intervals
+goal_data$minute_regulation_interval <- cut(goal_data$minute_regulation, breaks = seq(0, 90, by = 10),labels = c("0-10", "11-20", "21-30", "31-40", "41-50", "51-60", "61-70", "71-80", "81-90"))
+
+# Find the number of goals scored in each interval
+goals_by_interval <- goal_data %>%
+  group_by(minute_regulation_interval) %>%
+  count() %>% 
+  rename(goals = n)
+
+#goals scored in each interval
+goals_by_interval <- goals_by_interval %>%
+  mutate(percent_goals = (goals / 2499) * 100)
+
+print(goals_by_interval)
+
+# Visualize the results
+ggplot(goals_by_interval, aes(x = minute_regulation_interval, y = percent_goals)) +
+  geom_bar(stat = "identity") +
+  ylab("Percent Goals") +
+  xlab("Minute Interval") +
+  ggtitle("Goals scored at every 10 min interval")
+```
+The plot illustrates that the biggest percentage of goals are scored in the second half, and that the amount of goals in every interval of 10 minutes gets progressively higher towards the end of the match.  
+
+it can then be concluded the period of the game where the most goals are scored is the late part of the second half.  
+
+
+#2.Average goals per match for nation
+In the next part i want to find out which Nations play matches with highest an lowest goal averages. which means i will fist have to calculate the number of matches  
+
+```{r}
+# Select relevant columns and handle missing values
+avg_goals <- team_data %>%
+  select(match_date, team_name, goals_for, goals_against, goal_differential)
+  
+avg_goals$total_goals <- avg_goals$goals_for + avg_goals$goals_against
+  
+# Count the number of matches played by each team
+num_matches_by_nation <- avg_goals %>%
+  group_by(team_name) %>%
+  summarize(num_matches_by_nation = n()) %>% 
+  group_by(team_name) %>%
+  summarize(num_matches_by_nation = sum(num_matches_by_nation))
+
+
+
+ggplot(num_matches_by_nation, aes(x = team_name, y = num_matches_by_nation)) +
+geom_bar(stat = "identity") +
+  ylab("Number of matches")+
+  xlab("Nation")+
+  ggtitle("Matches played by nations")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+
+#sum of total goals and average number of goals 
+Now we have to sum the total amount of goals and the calculate the average number of goals by joining the the two dataframes of total goals by nation and number of matches by nation, which can then be visualise
+```{r}
+#make data for total_goals
+avg_goals$total_goals <- avg_goals$goals_for + avg_goals$goals_against
+
+# Sum the total goals scored by each team
+total_goals_by_nation <- avg_goals %>%
+group_by(team_name) %>%
+summarize(total_goals_by_nation = sum(total_goals))
+
+#Calculate the average number of goals scored per match by each team
+avg_goals_per_match_by_nation <- avg_goals %>%
+left_join(num_matches_by_nation, by = c("team_name" = "team_name")) %>%
+left_join(total_goals_by_nation, by = c("team_name" = "team_name")) %>%
+mutate(avg_goals_per_match = total_goals_by_nation / num_matches_by_nation)
+
+
+avg_goals_per_match_by_nation_selected <- avg_goals_per_match_by_nation %>%
+select(team_name, num_matches_by_nation, avg_goals_per_match) %>%
+distinct()
+
+#Then, you can sort the data frame by the avg_goals_per_match column using the arrange() function, like this:
+
+
+top_30_teams_avg_goals <- avg_goals_per_match_by_nation_selected %>%
+arrange(desc(avg_goals_per_match)) %>%
+head(30)
+
+#Visualize the results
+ggplot(top_30_teams_avg_goals, aes(x = team_name, y = avg_goals_per_match)) +
+geom_bar(stat = "identity") +
+  ylab("Avg goals per match")+
+  xlab("Nation")+
+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+#checking if representativ   
+Interestingly the countries that historically play the games with the highest goal averages are  "Dutch east indies", "Cuba", "Haiti" and "Zaire"  
+Seeing as these countries aren't very big football nations my theory is that they have played very few matches in which the score has been really high, we can check this by looking at the same teams but arranging by number of matches instead. we can chech this by making the y value the number of matches played instead og goal average  
+
+#arranging for number of games 
+```{r}
+#Visualize the results
+ggplot(top_30_teams_avg_goals, aes(x = team_name, y = num_matches_by_nation)) +
+geom_bar(stat = "identity") +
+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+here we can se that the "Dutch east indies", "Cuba", "Haiti" and "Zaire" have only played a small amount of games during the 90 years of world cup history this means that they usually don't qualify for the world cup and therefor isn't very representative of finding teams to watch.
+
+#finding the average goals of top 35 teams whith most matches
+to get a more representative result i want to look at the goal average for the top 40 teams which have the most world cup matches  
+
+first i will look at the 
+```{r}
+top_35_teams_matches_played <- avg_goals_per_match_by_nation_selected %>%
+arrange(desc(num_matches_by_nation)) %>%
+head(35)
+
+#Visualize the results
+ggplot(top_35_teams_matches_played, aes(x = team_name, y = avg_goals_per_match)) +
+geom_bar(stat = "identity") +
+theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(title = "")
+
+print(top_35_teams_matches_played) %>% 
+  arrange(desc(avg_goals_per_match))
+
+```
+the plot illustrates that the historically most interesting team of the 35 team with most matches is  at the world cup is "Hungary" followed by "West Germany*", "Austria", "Switzerland" and "Brazil" and the least interesting team to watch is "England" followed by "Japan", "Italy" and "Paraguay".
+
+*West Germany's national team was fused with east Germany in 1990 to become the German national team
+
+we can therefore conclude that of the teams were the data is representative the  
+
+#3.The development of goals scored over time.
+I now want to see if the Rule changes over the year have had an impact on goal scoring by visualize the average goal development over time by extracting the year from the match_date, and calculating the average goals per games per year. 
+
+```{r}
+# Add a column for the total number of goals scored in the match
+avg_goals_by_nation <- team_data %>% 
+  select(tournament_id, match_date, team_name, goals_for, goals_against) %>%
+  mutate(total_goals = goals_for + goals_against)
+
+# Extract year from match_date
+avg_goals_by_nation$year <- year(avg_goals_by_nation$match_date)
+
+# Group the data by year and team_name and summarize to get the average number of goals scored per match
+avg_goals_by_nation_over_time <- avg_goals_by_nation %>%
+  group_by(year) %>%
+  summarize(avg_goals = mean(total_goals))
+
+#Print
+print(avg_goals_by_nation_over_time)
+
+#Visualize the results
+ggplot(avg_goals_by_nation_over_time, aes(x = year, y = avg_goals)) +
+  geom_line()+
+theme(legend.position = "bottom")+
+  labs(title = "Average Goals Scored per Match Over Time")
+
+#This code will create a line chart showing the average number of goals scored per match by Denmark and England over time. You can customize the chart further by adding labels, titles, and other options using the various functions available in ggplot2.
+
+```
+the plot illustrates the development of average goals scored over time, and that the average scoring has steadily gone down over time, but have ocasionaly gone up again likely do to the implementations of the new rules in 1990, 1992, and 2013. especially the world cups after the 1992 and 2013 rule changes seem to have had an incline. 
+
+
+#4.the potential in comparing countries  
+to look for the further possibilities of analysing world cup data i want to compare the development of goals scored by nations over time. 
+
+to look at the development i have chosen to use the geom_smooth function, this is 
+```{r}
+
+# Group the data by year and team_name and summarize to get the average number of goals scored per match
+avg_goals_by_nation_over_time <- avg_goals_by_nation %>%
+  group_by(year, team_name) %>%
+  summarize(avg_goals = mean(goals_for))
+
+#Filter the data to include only Denmark and England
+avg_goals_by_nation_over_time <- avg_goals_by_nation_over_time %>%
+filter(team_name %in% c("Brazil", "Italy","South Korea"))
+
+#Visualize the results
+ggplot(avg_goals_by_nation_over_time, aes(x = year, y = avg_goals, color = team_name)) +
+geom_point() +
+  geom_smooth()+
+  theme(legend.position = "bottom")+
+  labs(title = "Average Goals Scored per Match Over Time")
+
+
+```
+the plot illustrates a comparison of the development of Average Goals Scored per match for "Brazil", "Italy" and "South Korea"  Over Time. 
+
+the plot can be adjusted by changing filter(team_name %in% c("Brazil", "Italy","England")) to any countries you want and can also be change to show the amount of goals conceded og goals scored by changing the goals_for in summarize(avg_goals = mean(total_goals)) to either goals_against or total_goals.
+
+In the plot we can ses that Italy and Brazil has had a small decline in goals scored over the years were South Korea has had an incline this could be an Indication that the Culture for football has developed over the years in the countries.
+
+#Conlusion
+from my visualizations i can now conclude that: 
+1. the most intense part of a football game when it comes to goal scoring is the the last part of the second half, and that the last 20 minutes are the best to watch if you mostly are interested in goals. 
+2. the most interesting(based on average match score) team to watch at the world cup of the teams 35 team with the most games is Hungary and the least interesting is England.
+3. the amount of average goals per world cup has steadily declined over time, but have recently had periods of incline, posibly do to the implementations of new rules in 1990, 1992, 2013.
+4. that there is potential in analyzing the development of goals between nations to indicate a rise Football culture in different nations.  
+
+
+
+
+
+
+
+
+
