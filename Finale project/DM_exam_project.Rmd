@@ -1,0 +1,429 @@
+---
+title: "World cup analysis"
+author: "Anders Dahl Boch"
+date: "2022-12-09"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+
+library(tidyverse)
+library(here)
+library(lubridate)
+
+
+```
+
+#read csv
+For my dataset i am using The Fjelstul World Cup Database which i found at https://github.com/jfjelstul/worldcup i am going to analyse the   
+´
+
+```{r}
+team_data <- read_csv("data-csv/team_appearances.csv")
+matches <- read_csv("data-csv/matches.csv")
+goal_data <- read_csv("data-csv/goals.csv")
+head(team_data)
+```
+
+```{r}
+matches <- read_csv("data-csv/matches.csv")
+head(matches)
+```
+
+```{r}
+goal_data <- read_csv("data-csv/goals.csv")
+head(goal_data)
+```
+all of the data collums seem to be the right class, and i can now begin to sta
+```{r}
+most_common_scoring_minutes <- goal_data %>%
+  group_by(minute_regulation) %>%
+  count() %>%
+  arrange(desc(n)) 
+
+print(most_common_scoring_minutes)
+
+```
+The amount of goals in the 90th minute seems unreasonably large because all stoppage time goals are counted as goals in the 90th minute. This can partially be fixed by filtering out all goals scored in stoppage time. 
+
+However, the dataset does not seem to account for stoppage time before the 1990 World Cup, and therefore the amount of goals being scored in the 90th minute should still be seen as somewhat inflated. The same problem technically applies for the 45th minute, but there is usually less stoppage time in the first half of a football match, and therefore the number of goals scored in the 45th minute should be more reliable. 
+
+it is ofcourse a shame to discount stoppage time goals but i havent been able to include 
+
+I am now going to filter out the stoppage time goals 
+
+```{r}
+#I want to find the total amount of goals without stoppage time goals 
+total_goals_without_stoppage <- goal_data %>% 
+  filter(match_period != c("first half, stoppage time", "second half, stoppage time")) %>%
+  summarize(total_goals_without_stoppage = sum(home_team+away_team))
+
+total_goals_without_stoppage
+```
+
+```{r}
+most_common_scoring_minutes_filtered <- goal_data %>%
+  filter(match_period != c("first half, stoppage time", "second half, stoppage time")) %>% 
+  group_by(minute_regulation) %>%
+  count() %>%
+  arrange(desc(n)) %>%
+  mutate(total_goals = sum(n)) %>%
+  mutate(percent_goals = (n / 2499) * 100)
+
+most_common_scoring_minutes_filtered
+```
+
+
+```{r}
+# Group minute_regulation into 10 minute intervals
+goal_data$minute_regulation_interval <- cut(goal_data$minute_regulation, breaks = seq(0, 90, by = 10),labels = c("0-10", "11-20", "21-30", "31-40", "41-50", "51-60", "61-70", "71-80", "81-90"))
+
+# Find the number of goals scored in each interval
+goals_by_interval <- goal_data %>%
+  group_by(minute_regulation_interval) %>%
+  count() %>% 
+  rename(goals = n)
+
+#goals scored in each interval
+goals_by_interval <- goals_by_interval %>%
+  mutate(percent_goals = (goals / 2499) * 100)
+
+print(goals_by_interval)
+```
+
+```{r}
+# Visualize the results
+ggplot(goals_by_interval, aes(x = minute_regulation_interval, y = percent_goals)) +
+  geom_bar(stat = "identity") +
+  ylab("Percent Goals") +
+  xlab("Minute Interval") +
+  ggtitle("Goals scored at every 10 min interval")
+```
+
+jeg nu se på hvilke hold der spiller kampe med flest mål
+```{r}
+# Select relevant columns and handle missing values
+avg_goals <- team_data %>%
+  select(match_date, team_name, goals_for, goals_against, goal_differential)
+  
+avg_goals$total_goals <- avg_goals$goals_for + avg_goals$goals_against
+  
+# Count the number of matches played by each team
+num_matches_by_nation <- avg_goals %>%
+  group_by(team_name) %>%
+  summarize(num_matches_by_nation = n()) %>% 
+  group_by(team_name) %>%
+  summarize(num_matches_by_nation = sum(num_matches_by_nation))
+
+print(num_matches_by_nation) %>% 
+  arrange(desc(num_matches_by_nation))
+```
+
+
+
+```{r}
+# vælg navnet på nationen
+nation_name <- "Argentina"
+
+# beregn gennemsnitlig antal mål per kamp for Argentina, når de spiller som hjemmehold eller udehold
+mean_goals <- matches %>%
+  filter(home_team_name == nation_name | away_team_name == nation_name) %>%
+  group_by(home_team_name) %>%
+  summarize(mean_goals = mean(home_team_score + away_team_score)) %>%
+  select(tournament_id,mean_goals)
+
+# vis resultatet
+mean_goals
+
+```
+
+```{r}
+# beregn gennemsnitlig antal mål per kamp for hvert eneste verdensmesterskab
+mean_goals_by_tournament <- matches %>%
+  group_by(tournament_name) %>%
+  summarize(mean_goals = mean(home_team_score + away_team_score))
+
+# vis resultatet
+print(mean_goals_by_tournament)
+aran
+```
+
+```{r}
+
+
+
+# opret barplot med ggplot2
+ggplot(mean_goals_by_tournament, aes(x = tournament_name, y = mean_goals)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+```
+
+```{r}
+team_data <- read.csv("data-csv/team_appearances.csv")
+
+# Tilføj kolonne med samlet antal mål for hver kamp
+team_data$total_goals <- team_data$goals_for + team_data$goals_against
+
+team_data
+```
+
+
+
+```{r}
+team_data <- read_csv("data-csv/team_appearances.csv") %>%
+  select(tournament_id,team_name, goals_for, goals_against) %>%
+  drop_na()
+
+team_data$total_goals <- team_data$goals_for + team_data$goals_against
+
+# Beregn gennemsnitlig mængde mål pr kamp for hvert hold
+team_data_summary <- team_data %>%
+  group_by(team_name) %>%
+  summarize(avg_goals = (total_goals) / n()) 
+team_data_summary <- team_data_summary[order(-team_data_summary$avg_goals),]
+  
+
+# Visualiser resultaterne
+ggplot(team_data_summary[1:20,], aes(team_name, avg_goals)) +
+geom_col()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  
+
+```
+
+```{r}
+team_data_summary
+
+```
+
+
+
+
+i would now like to look at individual teams at the world cup to determain who has the highest scoring games
+
+```{r}
+# Select relevant columns and handle missing values
+goals <- matches %>%
+  select(home_team_name, away_team_name, home_team_score, away_team_score) %>%
+  drop_na()
+
+# Create a new data frame that shows the average number of goals scored per match for each nation
+goals_per_match <- goals %>%
+  group_by(home_team_name) %>%
+  summarize(avg_goals = mean(home_team_score + away_team_score)) %>%
+  bind_rows(goals %>%
+              group_by(away_team_name) %>%
+              summarize(avg_goals = mean(home_team_score + away_team_score))) %>%
+  group_by(home_team_name) %>%
+  summarize(avg_goals = mean(avg_goals))
+
+# Sort the data by average number of goals scored
+goals_per_match <- goals_per_match[order(-goals_per_match$avg_goals),]
+
+# Visualize the results
+ggplot(goals_per_match, aes(home_team_name, avg_goals)) +
+  geom_col()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+
+
+```{r}
+
+# Select relevant columns and handle missing values
+avg_goals <- team_data %>%
+  select(match_date, team_name, goals_for, goals_against, goal_differential)
+  
+avg_goals$total_goals <- avg_goals$goals_for + avg_goals$goals_against
+  
+# Count the number of matches played by each team
+num_matches_by_nation <- avg_goals %>%
+  group_by(team_name) %>%
+  summarize(num_matches_by_nation = n()) %>% 
+  group_by(team_name) %>%
+  summarize(num_matches_by_nation = sum(num_matches_by_nation))
+  
+# Sum the total goals scored by each team
+total_goals_by_nation <- avg_goals %>%
+group_by(team_name) %>%
+summarize(total_goals_by_nation = sum(total_goals))
+
+#Calculate the average number of goals scored per match by each team
+avg_goals_per_match_by_nation <- avg_goals %>%
+left_join(num_matches_by_nation, by = c("team_name" = "team_name")) %>%
+left_join(total_goals_by_nation, by = c("team_name" = "team_name")) %>%
+mutate(avg_goals_per_match = total_goals_by_nation / num_matches_by_nation)
+
+avg_goals_per_match_by_nation_selected <- avg_goals_per_match_by_nation %>%
+select(team_name, avg_goals_per_match, num_matches_by_nation) %>% 
+  distinct()
+  
+
+print(avg_goals_per_match_by_nation_selected)%>%
+  filter(num_matches_by_nation >= 1) %>% 
+  arrange(desc(avg_goals_per_match))
+
+
+```
+
+```{r}
+print(avg_goals_per_match_by_nation_selected)%>%
+  arrange(desc(num_matches_by_nation))
+```
+
+
+```{r}
+#Select relevant columns and handle missing values
+goals_over_time_by_nation <- avg_goals 
+  
+
+
+
+#Extract year from match_date
+goals_over_time_by_nation$year <- year(goals_over_time_by_nation$match_date)
+print(goals_over_time_by_nation)
+
+# Count the number of matches played by each team
+num_matches_by_nation_at_wc <- goals_over_time_by_nation %>%
+  group_by(year, team_name) %>%
+  summarize(num_matches_by_nation_at_wc = n()) %>% 
+  group_by(year, team_name) %>%
+  summarize(num_matches_by_nation_at_wc = sum(num_matches_by_nation_at_wc))
+
+# Sum the total goals scored by each team
+total_goals_by_nation_at_wc <- goals_over_time_by_nation %>%
+group_by(year, team_name) %>%
+summarize(total_goals_by_nation_at_wc = sum(total_goals))
+
+#Calculate the average number of goals scored per match by each team
+avg_goals_by_nation_at_wc <- goals_over_time_by_nation %>%
+  left_join(num_matches_by_nation_at_wc, total_goals_by_nation_at_wc, by = c("year" = "year"), x = c("year", "team_name", "num_matches_by_nation_at_wc"), y = c("year", "team_name", "total_goals_by_nation_at_wc")) 
+
+
+print(avg_goals_by_nation_at_wc)
+
+
+```
+
+```{r}
+ggplot(data = avg_goals_by_nation_at_wc_selected) + 
+  geom_point(mapping = aes(x = year, y = avg_goals_at_wc, color = team_name))
+```
+
+
+```{r}
+#Select relevant columns and handle missing values
+team_data <- read_csv("data-csv/team_appearances.csv") %>%
+  select(tournament_id, match_date, team_name, goals_for, goals_against, goal_differential)
+  
+
+team_data$total_goals <- team_data$goals_for + team_data$goals_against
+
+#Extract year from match_date
+team_data$year <- year(team_data$match_date)
+
+#Create a new data frame that shows the average number of goals scored per match for each nation
+goals_per_nation <- team_data %>%
+  group_by(year, team_name) %>%
+  summarize(avg_score = mean(total_goals, na.rm = TRUE)) %>%
+  bind_rows(team_data) %>%
+  group_by(year, team_name) %>%
+  summarize(avg_score = mean(avg_score))
+
+#Count the number of matches played by each team
+num_matches <- team_data %>%
+  group_by(team_name) %>%
+  summarize(num_matches = n()) %>% 
+  group_by(team_name) %>%
+  summarize(num_matches = sum(num_matches))
+
+total_dif_goals <- team_data %>%
+  group_by(team_name) %>%
+  summarize(total_dif_goals = sum(goal_differential))
+
+#Filter goals_per_match by number of matches played
+goals_per_nation <- team_data %>%
+  left_join(num_matches, by = c("team_name" = "team_name")) %>%
+  left_join(total_dif_goals, by = c("team_name" = "team_name"))
+
+print(goals_per_nation) 
+
+```
+
+```{r}
+goals_per_nation_selected <- goals_per_nation %>%
+select(team_name, tournament_id, num_matches, total_dif_goals) %>%
+group_by(team_name) %>%
+slice(1)
+
+print(goals_per_nation_selected) %>%
+arrange(desc(num_matches))
+
+```
+
+
+
+```{r}
+
+# Select relevant columns and handle missing values
+avg_mål <- read_csv("data-csv/team_appearances.csv") %>%
+  select( team_name, goals_for, goals_against, goal_differential)
+  
+avg_mål$total_goals <- avg_mål$goals_for + avg_mål$goals_against
+  
+# Count the number of matches played by each team
+num_matches_by_nation <- avg_mål %>%
+  group_by(team_name) %>%
+  summarize(num_matches_by_nation = n()) %>% 
+  group_by(team_name) %>%
+  summarize(num_matches_by_nation = sum(num_matches_by_nation))
+  
+# Sum the total goals scored by each team
+total_goals_by_nation <- avg_mål %>%
+group_by(team_name) %>%
+summarize(total_goals_by_nation = sum(total_goals))
+
+#Calculate the average number of goals scored per match by each team
+avg_goals_per_match_by_nation <- avg_mål %>%
+left_join(num_matches_by_nation, by = c("team_name" = "team_name")) %>%
+left_join(total_goals_by_nation, by = c("team_name" = "team_name")) %>%
+mutate(avg_goals_per_match = total_goals_by_nation / num_matches_by_nation)
+
+avg_goals_per_match_by_nation_selected <- avg_goals_per_match_by_nation %>%
+select(team_name, avg_goals_per_match,num_matches_by_nation) %>% 
+  distinct()
+
+print(avg_goals_per_match_by_nation_selected)%>%
+  filter(num_matches_by_nation >= 20) %>% 
+  arrange(desc(avg_goals_per_match))
+
+
+
+
+```
+
+
+
+
+
+
+```{r}
+#Visualize the results
+ggplot(gavg_goals_by_nation_per_wc_selected , aes(year, avg_goals, color = team_name)) +
+  geom_line() +
+  theme(legend.position = "bottom")
+```
+
+
+
+
+
+
+
